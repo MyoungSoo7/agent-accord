@@ -25,7 +25,8 @@ HOME = os.environ.get("ACCORD_HOME", os.path.expanduser("~/.accord"))
 CONTRACTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "contracts")
 
 # 에이전트가 발화할 수 있는 타입과, 사람만 발화할 수 있는 타입을 *코드에서* 가른다.
-AGENT_TYPES = {"propose", "question", "revise", "execute", "withdraw"}
+AGENT_TYPES = {"propose", "question", "revise", "execute", "withdraw",
+               "approve_relay", "reject_relay"}
 HUMAN_ONLY_TYPES = {"approve", "reject"}
 SUBJECTS = ("doc_review", "schedule", "code_change")
 
@@ -167,8 +168,14 @@ def derive(thread):
     rows = read_ledger(thread)
     if not rows:
         raise AccordError(f"{thread}: 원장에 없는 협의다")
+    my_human = None
+    try:
+        my_human = load_config()["me"]["human_id"]
+    except AccordError:
+        pass
     cur = None            # 마지막 propose/revise
-    approvals = {}        # party -> 승인한 state_hash
+    approvals = {}        # party -> (승인한 state_hash, 출처)
+    misrecorded = []      # 이 에이전트가 기록할 권한이 없던 승인
     rejects = []          # 반려 기록
     issues = []           # 쟁점(question) 전체
     resolved = set()
@@ -182,8 +189,15 @@ def derive(thread):
         elif t == "question":
             issues.append(r)
         elif t == "approve":
-            approvals[r["sender"]["party"]] = r.get("state_hash")
-        elif t == "reject":
+            # 이 에이전트가 직접 들은 사람 승인. 자기 사람 것만 기록할 권한이 있다.
+            if r["sender"].get("human_id") == my_human:
+                approvals[r["sender"]["party"]] = (r.get("state_hash"), "attested")
+            else:
+                misrecorded.append(r)
+        elif t == "approve_relay":
+            # 상대 에이전트의 전언. 검증할 수 없다 — 그렇다고 표시해서 센다.
+            approvals[r["sender"]["party"]] = (r.get("state_hash"), "relayed")
+        elif t in ("reject", "reject_relay"):
             rejects.append(r)
             approvals.clear()
         elif t == "execute":
@@ -195,13 +209,14 @@ def derive(thread):
     if cur is None:
         raise AccordError(f"{thread}: 제안 없이 시작된 협의다 (원장 손상)")
     h = state_hash(thread, cur["rev"], cur["subject"], cur["payload"])
-    valid = {p for p, ph in approvals.items() if ph == h}
+    valid = {p for p, (ph, _src) in approvals.items() if ph == h}
+    relayed = {p for p, (ph, src) in approvals.items() if ph == h and src == "relayed"}
     open_issues = [i for i in issues if i.get("issue_id") not in resolved]
 
     last_kind = rows[-1]["type"]
     if withdrawn:
         state = "withdrawn"
-    elif rejects and last_kind == "reject":
+    elif rejects and last_kind in ("reject", "reject_relay"):
         state = "rejected"
     elif executed:
         state = "executed"
@@ -220,6 +235,15 @@ def derive(thread):
             "합의 착시 의심 — 쟁점이 0건이다. 양쪽 에이전트가 서로 동의만 했을 가능성을 "
             "사람이 확인할 것."
         )
+    if relayed:
+        warnings.append(
+            "상대 사람의 승인(%s)은 상대 *에이전트의 전언*이다. 이 쪽에서 검증할 수 없다 — "
+            "서명이 붙기 전까지 이 합의는 상대 에이전트를 신뢰하는 만큼만 유효하다."
+            % ", ".join(sorted(relayed)))
+    if misrecorded:
+        warnings.append(
+            "권한 없는 승인 기록 %d건이 원장에 있다 — 이 에이전트가 남의 사람 승인을 직접 "
+            "기록한 흔적이다. 무효로 센다." % len(misrecorded))
     if state == "agreed" and cur["subject"] == "code_change":
         p = cur["payload"]
         if not p.get("rollback") or not p.get("verification"):
@@ -228,6 +252,7 @@ def derive(thread):
         "thread": thread, "rev": cur["rev"], "subject": cur["subject"],
         "payload": cur["payload"], "state_hash": h, "state": state,
         "approved_by": sorted(valid), "stale_approvals": sorted(set(approvals) - valid),
+        "relayed_approvals": sorted(relayed), "misrecorded": misrecorded,
         "open_issues": open_issues, "total_questions": len(issues),
         "rejects": rejects, "executed": executed, "warnings": warnings,
         "rows": rows,
@@ -323,6 +348,30 @@ def cmd_request_approval(a):
     print(f"양쪽 사람({cfg['me']['human_id']}, {cfg['peer']['human_id']}) 모두 쳐야 합의다.")
 
 
+def cmd_relay(a):
+    """내 사람이 직접 친 승인을 상대 에이전트에게 *전언*으로 전달한다.
+    상대는 이걸 검증할 수 없으므로, 상대 쪽 상태에는 항상 전언 경고가 붙는다."""
+    cfg = load_config()
+    st = derive(a.thread)
+    mine = cfg["me"]["party"]
+    if mine not in st["approved_by"] and not a.reject:
+        raise AccordError(
+            f"내 사람({cfg['me']['human_id']})의 유효한 승인이 아직 없다 — 전달할 것이 없다. "
+            f"현재 상태 {st['state']}")
+    env = {"accord": "1", "thread": a.thread, "rev": st["rev"], "ts": now(),
+           "sender": {"party": mine, "kind": "agent"},
+           "type": "reject_relay" if a.reject else "approve_relay",
+           "subject": st["subject"], "state_hash": st["state_hash"],
+           "human_id": cfg["me"]["human_id"]}
+    if a.reject:
+        env["text"] = a.reject
+    check(env, "envelope", "봉투")
+    emit(env)
+    print(f"내 사람({cfg['me']['human_id']})의 "
+          f"{'반려' if a.reject else '승인'}을 전언으로 내보냈다. "
+          f"상대 쪽에서는 '검증 불가 전언' 으로 표시된다.")
+
+
 HUMAN_RE = re.compile(
     r"^\s*(승인|approve|반려|reject)\s+(T-[0-9a-f]{8})\s*(.*)$", re.IGNORECASE)
 
@@ -346,14 +395,17 @@ def cmd_ingest(a):
 
 def ingest_human(cfg, m, from_id):
     verb, thread, rest = m.group(1).lower(), m.group(2), m.group(3).strip()
-    party = None
-    for side in ("me", "peer"):
-        if cfg[side]["human_id"] == from_id:
-            party = cfg[side]["party"]
-    if party is None:
+    if from_id == cfg["peer"]["human_id"]:
+        raise AccordError(
+            f"{from_id} 는 *상대편* 사람이다. 나는 그 사람의 말을 직접 듣지 못하므로 "
+            f"그 승인을 여기에 기록할 권한이 없다 — 내가 --from-human 값을 지어낼 수 "
+            f"있기 때문이다. 상대 승인은 상대 에이전트가 approve_relay 봉투로 보내야 하고, "
+            f"그것도 '전언'으로만 센다.")
+    if from_id != cfg["me"]["human_id"]:
         raise AccordError(
             f"등록되지 않은 사람 {from_id} 의 승인·반려다 — 무시한다. "
-            f"허용: {cfg['me']['human_id']}, {cfg['peer']['human_id']}")
+            f"이 에이전트가 받을 수 있는 사람은 {cfg['me']['human_id']} 뿐이다.")
+    party = cfg["me"]["party"]
     st = derive(thread)
     if verb in ("승인", "approve"):
         if rest.split()[0:1] != [st["state_hash"]]:
@@ -421,6 +473,8 @@ def print_state(st, payload=False):
     print()
     print(f"협의 {st['thread']} · {st['subject']} · rev {st['rev']} · 지문 {st['state_hash']}")
     print(f"상태: {st['state']}   승인: {', '.join(st['approved_by']) or '없음'}")
+    if st.get("relayed_approvals"):
+        print(f"그중 전언(검증 불가): {', '.join(st['relayed_approvals'])}")
     if st["stale_approvals"]:
         print(f"무효화된 승인(판본 변경): {', '.join(st['stale_approvals'])}")
     if st["open_issues"]:
@@ -515,6 +569,11 @@ def main(argv=None):
     s = sub.add_parser("request-approval", help="사람이 칠 승인 한 줄을 출력")
     s.add_argument("--thread", required=True)
     s.set_defaults(fn=cmd_request_approval)
+
+    s = sub.add_parser("relay", help="내 사람의 승인을 상대에게 전언으로 전달")
+    s.add_argument("--thread", required=True)
+    s.add_argument("--reject", help="반려를 전달할 때 사유")
+    s.set_defaults(fn=cmd_relay)
 
     s = sub.add_parser("ingest", help="받은 메시지 처리 (봉투 또는 사람 한 줄)")
     s.add_argument("--file", default="-")

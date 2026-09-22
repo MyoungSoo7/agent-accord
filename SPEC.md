@@ -34,7 +34,7 @@
 
 - `thread` — `^T-[0-9a-f]{8}$`
 - `sender.kind` — `agent` | `human`. **`human` 봉투는 무조건 거부된다** (§4).
-- `type` — `propose` · `question` · `revise` · `approve` · `reject` · `execute` · `withdraw`
+- `type` — `propose` · `question` · `revise` · `approve` · `reject` · `approve_relay` · `reject_relay` · `execute` · `withdraw`
 - `subject` — `doc_review` | `schedule` | `code_change`
 - `payload` — 해당 subject 의 계약(`contracts/<subject>.schema.json`)을 통과해야 한다.
 
@@ -67,8 +67,28 @@ state_hash = sha256(canon).hexdigest()[:8]
 
 사람 한 줄에 대해서는:
 
-1. `--from-human` 이 `me.human_id` 또는 `peer.human_id` 가 아니면 → 거부
+1. `--from-human` 이 **`me.human_id` 가 아니면 거부**. 상대편 사람 id 여도 거부한다.
+   *이유(실전 1회차에서 찾은 구멍): `--from-human` 은 에이전트가 지어낼 수 있는 값이다.
+   상대 사람 id 를 대면 대리 승인이 그대로 성립했다. 에이전트는 자기가 실제로 연결된
+   채팅의 사람 것만 기록할 권한이 있다.*
 2. 지문이 현재 판본과 다르면 → 거부 (낡은 판본 승인 가능성)
+
+### 4.1 상대 사람의 승인 — 전언(relay)
+
+상대 사람의 승인은 이 에이전트가 직접 들을 수 없다. 유일한 경로는 **상대 에이전트가 보내는
+`approve_relay` 봉투**다.
+
+```json
+{ "type": "approve_relay", "sender": {"party":"B","kind":"agent"},
+  "human_id": "222", "state_hash": "2c733811", ... }
+```
+
+- 승인으로 **센다**. 다만 `relayed_approvals` 에 표시되고 상태 출력에 경고가 붙는다:
+  "상대 사람의 승인은 상대 *에이전트의 전언*이다. 이 쪽에서 검증할 수 없다."
+- 즉 구멍이 *닫힌* 게 아니라 **드러난** 것이다. 검증 불가능한 주장을 검증된 것처럼
+  세지 않는 것이 여기서 할 수 있는 최선이고, 진짜 해법은 §9 의 서명이다.
+- 원장에 `type: approve` 인데 `sender.human_id != me.human_id` 인 행이 있으면
+  **무효로 세고 경고한다** (`misrecorded`). 과거에 기록된 위조도 소급해서 무효가 된다.
 
 ## 5. 상태 기계
 
@@ -129,6 +149,8 @@ state_hash = sha256(canon).hexdigest()[:8]
 
 ## 9. 미구현 (의도적으로 열어둔 자리)
 
-- **서명** — `sender` 옆에 detached signature 를 두는 자리. 현재는 채팅 플랫폼의 계정 신원에 의존한다.
+- **서명** — `sender` 옆에 detached signature 를 두는 자리. **이게 없으면 §4.1 의 전언은 끝까지 검증 불가다.**
+  사람이 친 승인 줄을 그 사람의 키로 서명해 상대에게 넘기면, 상대 에이전트도 대리 승인을 만들 수 없게 된다.
+  현재는 채팅 플랫폼의 계정 신원 + 각 에이전트가 자기 사람만 기록한다는 규칙에 의존한다.
 - **3인 이상** — 현재는 2 party 고정. `agreed` 조건을 정족수로 일반화하면 확장된다.
 - **만료** — 승인에 유효기간이 없다. 판본이 안 바뀌면 3주 전 승인도 유효하다.

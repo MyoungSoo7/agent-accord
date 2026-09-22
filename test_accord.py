@@ -64,6 +64,19 @@ class Base(unittest.TestCase):
         accord.main(["ingest", "--file", f])
         return thread, env
 
+    def peer_human_relay(self, thread, subject, hash_, reject=None):
+        """상대 사람의 승인은 상대 *에이전트의 전언* 으로만 들어올 수 있다."""
+        env = {"accord": "1", "thread": thread, "rev": 1, "ts": "2026-09-22T00:00:02Z",
+               "sender": {"party": "B", "kind": "agent"},
+               "type": "reject_relay" if reject else "approve_relay",
+               "subject": subject, "state_hash": hash_, "human_id": "222"}
+        if reject:
+            env["text"] = reject
+        f = os.path.join(self.tmp, "relay.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(envelope_text(env))
+        return accord.main(["ingest", "--file", f])
+
     def human(self, line, from_id):
         f = os.path.join(self.tmp, "h.txt")
         with open(f, "w", encoding="utf-8") as fh:
@@ -132,16 +145,18 @@ class TestApprovalBoundary(Base):
         h = accord.state_hash(th, 1, "code_change", CODE)
         self.assertEqual(self.human(f"승인 {th} {h}", "111"), 0)
         self.assertEqual(accord.derive(th)["state"], "half_approved")
-        self.assertEqual(self.human(f"승인 {th} {h}", "222"), 0)
+        self.assertEqual(self.peer_human_relay(th, "code_change", h), 0)
         st = accord.derive(th)
         self.assertEqual(st["state"], "agreed")
         self.assertEqual(st["approved_by"], ["A", "B"])
+        self.assertEqual(st["relayed_approvals"], ["B"])
+        self.assertTrue(any("전언" in w for w in st["warnings"]), st["warnings"])
 
     def test_revision_invalidates_approvals(self):
         th, _ = self.peer_propose("code_change", CODE)
         h1 = accord.state_hash(th, 1, "code_change", CODE)
         self.human(f"승인 {th} {h1}", "111")
-        self.human(f"승인 {th} {h1}", "222")
+        self.peer_human_relay(th, "code_change", h1)
         self.assertEqual(accord.derive(th)["state"], "agreed")
         self.peer_propose("code_change", dict(CODE, risk="high"), rev=2, thread=th)
         st = accord.derive(th)
@@ -153,7 +168,44 @@ class TestApprovalBoundary(Base):
         th, _ = self.peer_propose("schedule", SCHED)
         h = accord.state_hash(th, 1, "schedule", SCHED)
         self.human(f"승인 {th} {h}", "111")
-        self.assertEqual(self.human(f"반려 {th} 그 시간은 배포 창이다", "222"), 0)
+        self.assertEqual(
+            self.peer_human_relay(th, "schedule", h, reject="그 시간은 배포 창이다"), 0)
+        st = accord.derive(th)
+        self.assertEqual(st["state"], "rejected")
+        self.assertEqual(st["approved_by"], [])
+
+
+class TestProxyHole(Base):
+    """실전 1회차에서 찾은 구멍: --from-human 은 에이전트가 지어낼 수 있는 값이다."""
+
+    def test_agent_cannot_record_peer_human_directly(self):
+        th, _ = self.peer_propose("code_change", CODE)
+        h = accord.state_hash(th, 1, "code_change", CODE)
+        self.human(f"승인 {th} {h}", "111")
+        # 상대 사람 id 를 내가 직접 대서 기록하려는 시도
+        self.assertEqual(self.human(f"승인 {th} {h}", "222"), 2)
+        st = accord.derive(th)
+        self.assertEqual(st["approved_by"], ["A"])
+        self.assertEqual(st["state"], "half_approved")
+
+    def test_forged_row_in_ledger_counts_as_misrecorded(self):
+        th, _ = self.peer_propose("code_change", CODE)
+        h = accord.state_hash(th, 1, "code_change", CODE)
+        self.human(f"승인 {th} {h}", "111")
+        accord.append({"accord": "1", "thread": th, "rev": 1, "ts": "2026-09-22T00:00:09Z",
+                       "sender": {"party": "B", "kind": "human", "human_id": "222"},
+                       "type": "approve", "subject": "code_change", "state_hash": h})
+        st = accord.derive(th)
+        self.assertEqual(st["approved_by"], ["A"])
+        self.assertEqual(st["state"], "half_approved")
+        self.assertEqual(len(st["misrecorded"]), 1)
+        self.assertTrue(any("권한 없는 승인" in w for w in st["warnings"]), st["warnings"])
+
+    def test_relay_reject_clears_approvals(self):
+        th, _ = self.peer_propose("schedule", SCHED)
+        h = accord.state_hash(th, 1, "schedule", SCHED)
+        self.human(f"승인 {th} {h}", "111")
+        self.peer_human_relay(th, "schedule", h, reject="그 시간은 배포 창이다")
         st = accord.derive(th)
         self.assertEqual(st["state"], "rejected")
         self.assertEqual(st["approved_by"], [])
@@ -188,7 +240,7 @@ class TestIllusion(Base):
         th, _ = self.peer_propose("doc_review", DOC)
         h = accord.state_hash(th, 1, "doc_review", DOC)
         self.human(f"승인 {th} {h}", "111")
-        self.human(f"승인 {th} {h}", "222")
+        self.peer_human_relay(th, "doc_review", h)
         st = accord.derive(th)
         self.assertEqual(st["state"], "agreed")
         self.assertTrue(any("합의 착시" in w for w in st["warnings"]), st["warnings"])
@@ -201,7 +253,7 @@ class TestIllusion(Base):
         st = accord.derive(th)
         h = st["state_hash"]
         self.human(f"승인 {th} {h}", "111")
-        self.human(f"승인 {th} {h}", "222")
+        self.peer_human_relay(th, "doc_review", h)
         st2 = accord.derive(th)
         self.assertEqual(st2["state"], "agreed")
         self.assertFalse(any("합의 착시" in w for w in st2["warnings"]), st2["warnings"])
