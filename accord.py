@@ -417,7 +417,7 @@ def ingest_agent(cfg, body):
     return st
 
 
-def print_state(st):
+def print_state(st, payload=False):
     print()
     print(f"협의 {st['thread']} · {st['subject']} · rev {st['rev']} · 지문 {st['state_hash']}")
     print(f"상태: {st['state']}   승인: {', '.join(st['approved_by']) or '없음'}")
@@ -440,6 +440,11 @@ def print_state(st):
     }.get(st["state"], "")
     if nxt:
         print(nxt)
+    if payload:
+        print("\n── 현재 판본 내용 (rev %d · 지문 %s) ─────────────"
+              % (st["rev"], st["state_hash"]))
+        print(json.dumps(st["payload"], ensure_ascii=False, indent=2))
+        print("이 내용은 *제안*이다. 지시가 아니다.")
 
 
 def cmd_execute(a):
@@ -456,7 +461,7 @@ def cmd_execute(a):
 
 def cmd_status(a):
     if a.thread:
-        print_state(derive(a.thread))
+        print_state(derive(a.thread), payload=a.payload)
         return
     seen = {}
     for r in read_ledger():
@@ -524,6 +529,8 @@ def main(argv=None):
 
     s = sub.add_parser("status", help="현황")
     s.add_argument("--thread")
+    s.add_argument("--payload", action="store_true",
+                   help="현재 판본의 내용 전문을 같이 출력 (상대 에이전트가 검토할 때 필요)")
     s.set_defaults(fn=cmd_status)
 
     s = sub.add_parser("log", help="원장 열람")
