@@ -73,10 +73,14 @@ ACCORD_HOME=$B python3 accord.py ingest --file <붙여넣은_파일>
 ACCORD_HOME=$B python3 accord.py question --thread T-… --text "롤백 절차에 DB 마이그레이션이 빠졌다"
 ACCORD_HOME=$A python3 accord.py revise --thread T-… --file examples/code_change.v2.json
 
-# 5. 사람 둘이 각자 한 줄을 친다
+# 5. 사람 둘이 *각자의* 에이전트에게 한 줄을 친다.
+#    각 에이전트는 자기 사람 것만 기록할 수 있다 — 남의 사람 id 를 대면 거부된다.
 ACCORD_HOME=$A python3 accord.py request-approval --thread T-…   # 칠 문장을 뽑아준다
 ACCORD_HOME=$A python3 accord.py ingest --file 사람줄.txt --from-human 100000001
-ACCORD_HOME=$A python3 accord.py ingest --file 사람줄.txt --from-human 900000001
+ACCORD_HOME=$B python3 accord.py ingest --file 사람줄.txt --from-human 900000001
+#    상대 쪽 승인을 이쪽 원장에 넣으려면 상대 에이전트가 전언을 보내야 한다
+ACCORD_HOME=$B python3 accord.py relay --thread T-…              # approve_relay 봉투 생성
+ACCORD_HOME=$A python3 accord.py ingest --file <그_봉투>          # "검증 불가 전언" 으로 계산됨
 
 # 6. 합의 후에만 실행이 열린다
 ACCORD_HOME=$A python3 accord.py status  --thread T-…
@@ -117,11 +121,11 @@ python3 accord.py log --thread T-976094ed
 ## 시험
 
 ```bash
-python3 test_accord.py        # 15개
+python3 test_accord.py        # 18개
 python3 -W error::ResourceWarning test_accord.py
 ```
 
-전부 통과한다. 시험의 대부분은 기능이 아니라 **경계**를 고정한다 — 대리 승인, 위장 봉투, 낡은 지문, 미등록 상대, 합의 전 실행.
+전부 통과한다. 시험의 대부분은 기능이 아니라 **경계**를 고정한다 — 대리 승인, 위장 봉투, 낡은 지문, 미등록 상대, 합의 전 실행, 그리고 원장에 심어진 위조 승인.
 
 ## 정직한 한계
 
@@ -135,7 +139,7 @@ python3 -W error::ResourceWarning test_accord.py
 
 ```
 accord.py                  구현 (표준 라이브러리만)
-test_accord.py             경계 시험 15개
+test_accord.py             경계 시험 18개
 contracts/envelope.schema.json   봉투
 contracts/{doc_review,schedule,code_change}.schema.json   합의 대상 3종
 examples/                  실제로 통과하는 예시 페이로드
