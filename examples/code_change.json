@@ -1,0 +1,14 @@
+{
+  "repo": "example-org/uptime-notifier",
+  "base_sha": "a1b2c3d",
+  "change_ref": {"kind": "pr", "value": "https://github.com/example-org/uptime-notifier/pull/1"},
+  "summary": "중지된 컨테이너 알림에서 재시작 정책이 always·unless-stopped 인 것을 제외",
+  "risk": "medium",
+  "rollback": "해당 커밋 revert 후 재배포, 다음 폴링 주기에서 원복 확인",
+  "verification": [
+    "전체 호스트 전수 스윕에서 제외 대상이 의도한 스택만인지 확인",
+    "다음 폴링 주기에서 오탐 건수가 0 이 되는지 확인",
+    "on-failure 정책 컨테이너는 여전히 알림이 오는지 1건 확인"
+  ],
+  "blast_radius": ["알림 발송 경로"]
+}

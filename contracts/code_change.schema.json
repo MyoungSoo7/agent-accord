@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "accord/code_change",
+  "title": "코드 변경 — 무엇을 어느 기준에서 바꾸고, 어떻게 되돌리고, 무엇으로 통과를 판정하는가",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repo", "base_sha", "change_ref", "summary", "risk", "rollback", "verification"],
+  "properties": {
+    "repo": { "type": "string", "minLength": 1 },
+    "base_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "change_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "enum": ["pr", "branch", "patch"] },
+        "value": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "risk": { "enum": ["low", "medium", "high"] },
+    "rollback": { "type": "string", "minLength": 1 },
+    "verification": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "blast_radius": { "type": "array", "items": { "type": "string" } }
+  }
+}

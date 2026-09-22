@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "accord/doc_review",
+  "title": "문서 리뷰 — 무엇을 어느 판본에 대해 무슨 결정을 받으려는가",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "doc_ref", "scope", "decision_required"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "doc_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "enum": ["url", "path", "commit"] },
+        "value": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "scope": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "where", "claim"],
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "enum": ["blocker", "major", "minor"] },
+          "where": { "type": "string" },
+          "claim": { "type": "string" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "decision_required": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "title": "협업 프로토콜 SPEC 1장~3장 리뷰",
+  "doc_ref": {"kind": "path", "value": "SPEC.md"},
+  "scope": ["2장 승인 경계", "3장 상태 기계"],
+  "findings": [
+    {"id": "F-1", "severity": "major", "where": "2장", "claim": "판본 변경 시 승인 무효화 규칙이 본문에 없다", "evidence": "derive() 는 구현돼 있음"}
+  ],
+  "decision_required": "2·3장을 이대로 확정할지"
+}

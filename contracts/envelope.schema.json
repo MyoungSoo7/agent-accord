@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "accord/envelope",
+  "title": "ACCORD 봉투 — 두 사람의 대리 에이전트가 공유 버스에 올리는 단위 메시지",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["accord", "thread", "rev", "ts", "sender", "type", "subject"],
+  "properties": {
+    "accord": { "const": "1" },
+    "thread": { "type": "string", "pattern": "^T-[0-9a-f]{8}$" },
+    "rev": { "type": "integer" },
+    "ts": { "type": "string" },
+    "sender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["party", "kind"],
+      "properties": {
+        "party": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["agent", "human"] },
+        "human_id": { "type": "string" }
+      }
+    },
+    "type": {
+      "enum": ["propose", "question", "revise", "approve", "reject", "execute", "withdraw"]
+    },
+    "subject": { "enum": ["doc_review", "schedule", "code_change"] },
+    "state_hash": { "type": "string", "pattern": "^[0-9a-f]{8}$" },
+    "payload": { "type": "object" },
+    "text": { "type": "string" },
+    "issue_id": { "type": "string" },
+    "evidence": { "type": "array", "items": { "type": "string" } }
+  }
+}
