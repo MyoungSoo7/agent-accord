@@ -1,0 +1,5 @@
+# 원자료는 커밋하지 않는다 (fetch_data.py 가 다시 받고 sha256 으로 검증한다)
+data/
+.venv/
+__pycache__/
+*.pyc
