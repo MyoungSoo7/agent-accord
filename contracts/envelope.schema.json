@@ -67,7 +67,8 @@
       "enum": [
         "doc_review",
         "schedule",
-        "code_change"
+        "code_change",
+        "recipe_change"
       ]
     },
     "state_hash": {

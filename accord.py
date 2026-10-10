@@ -28,7 +28,7 @@ CONTRACTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "contracts"
 AGENT_TYPES = {"propose", "question", "revise", "execute", "withdraw",
                "approve_relay", "reject_relay"}
 HUMAN_ONLY_TYPES = {"approve", "reject"}
-SUBJECTS = ("doc_review", "schedule", "code_change")
+SUBJECTS = ("doc_review", "schedule", "code_change", "recipe_change")
 
 
 class AccordError(Exception):
@@ -38,7 +38,7 @@ class AccordError(Exception):
 # ---------------------------------------------------------------- 스키마 검증
 # jsonschema 패키지가 없는 환경이라 필요한 키워드만 직접 구현한다.
 # 지원: type, const, enum, required, properties, additionalProperties(false),
-#       items, minItems, maxItems, minLength, pattern
+#       items, minItems, maxItems, minLength, pattern, minimum, maximum
 _TYPES = {
     "object": dict,
     "array": list,
@@ -71,6 +71,11 @@ def validate(inst, schema, path="$"):
         errs.append(f"{path}: {schema['const']!r} 여야 한다 (받은 값 {inst!r})")
     if "enum" in schema and inst not in schema["enum"]:
         errs.append(f"{path}: {schema['enum']} 중 하나여야 한다 (받은 값 {inst!r})")
+    if isinstance(inst, (int, float)) and not isinstance(inst, bool):
+        if "minimum" in schema and inst < schema["minimum"]:
+            errs.append(f"{path}: {schema['minimum']} 이상이어야 한다")
+        if "maximum" in schema and inst > schema["maximum"]:
+            errs.append(f"{path}: {schema['maximum']} 이하여야 한다")
     if isinstance(inst, str):
         if "minLength" in schema and len(inst) < schema["minLength"]:
             errs.append(f"{path}: 최소 길이 {schema['minLength']}")
@@ -109,6 +114,66 @@ def check(inst, schema_name, what):
     errs = validate(inst, load_schema(schema_name))
     if errs:
         raise AccordError(f"{what} 계약 위반:\n  - " + "\n  - ".join(errs))
+
+
+# ---------------------------------------------------------------- 본문 규칙
+# 스키마로는 걸 수 없는 *항목 사이의* 조건. 어기면 계약 위반과 똑같이 제안 자체가 안 된다.
+def _finite(x):
+    # NaN 은 자기 자신과 같지 않다. json 은 NaN·Infinity 를 그대로 읽어 들인다.
+    return (isinstance(x, (int, float)) and not isinstance(x, bool)
+            and x == x and x not in (float("inf"), float("-inf")))
+
+
+def recipe_change_rules(p):
+    """창 밖 값·되돌릴 곳 없는 변경·이름만 있는 변경을 막는다. 스키마를 통과한 본문이 전제다."""
+    errs = []
+    seen = set()
+    for i, c in enumerate(p["changes"]):
+        at = f"$.changes[{i}]"
+        nums = {k: c[k] for k in ("from", "to", "max_step") if k in c}
+        nums.update({f"window.{k}": c["window"][k] for k in ("lo", "hi")})
+        bad = sorted(k for k, v in nums.items() if not _finite(v))
+        if bad:
+            errs.append(f"{at}: 유한한 수가 아니다 ({', '.join(bad)})")
+            continue
+        lo, hi, frm, to = c["window"]["lo"], c["window"]["hi"], c["from"], c["to"]
+        if not lo < hi:
+            errs.append(f"{at}.window: lo({lo}) 가 hi({hi}) 보다 작아야 한다")
+        elif not lo <= to <= hi:
+            errs.append(f"{at}.to: 승인된 공정 창 [{lo}, {hi}] 밖이다 (받은 값 {to}) — "
+                        f"창 밖 값은 제안할 수 없다")
+        if frm == to:
+            errs.append(f"{at}: from 과 to 가 같다 — 바뀌는 것이 없는 항목이다")
+        if "max_step" in c and abs(to - frm) > c["max_step"]:
+            errs.append(f"{at}: 한 번에 바꿀 수 있는 폭 max_step {c['max_step']} 을 넘는다 "
+                        f"(|{to} - {frm}| = {abs(to - frm)})")
+        if c["param"] in seen:
+            errs.append(f"{at}.param: '{c['param']}' 이 두 번 나온다 — 어느 값이 맞는지 정할 수 없다")
+        seen.add(c["param"])
+    base, to_rev = p["recipe"]["base_rev"], p["rollback"]["to_rev"]
+    if to_rev != base:
+        errs.append(f"$.rollback.to_rev: 되돌릴 곳은 지금 승인된 판본 recipe.base_rev({base!r}) "
+                    f"여야 한다 (받은 값 {to_rev!r})")
+    return errs
+
+
+RULES = {"recipe_change": recipe_change_rules}
+
+
+def payload_errors(payload, subject):
+    """계약 위반과 본문 규칙 위반을 모아 돌려준다. 던지지 않는다 — derive 도 쓴다."""
+    if subject not in SUBJECTS:
+        return [f"알 수 없는 합의 대상 {subject!r}"]
+    errs = validate(payload, load_schema(subject))
+    if errs or subject not in RULES:
+        return errs
+    return RULES[subject](payload)
+
+
+def check_payload(payload, subject):
+    errs = payload_errors(payload, subject)
+    if errs:
+        raise AccordError(f"{subject} 본문 계약 위반:\n  - " + "\n  - ".join(errs))
 
 
 # ---------------------------------------------------------------- 저장소
@@ -248,6 +313,11 @@ def derive(thread):
         p = cur["payload"]
         if not p.get("rollback") or not p.get("verification"):
             warnings.append("코드 변경인데 롤백·검증 조건이 비어 있다")
+    perrs = payload_errors(cur["payload"], cur["subject"])
+    if perrs:
+        warnings.append(
+            "현재 판본이 계약·본문 규칙을 어긴다 — 수신 때는 막히므로 원장을 직접 손댄 흔적이다: "
+            + "; ".join(perrs))
     return {
         "thread": thread, "rev": cur["rev"], "subject": cur["subject"],
         "payload": cur["payload"], "state_hash": h, "state": state,
@@ -305,7 +375,7 @@ def cmd_init(a):
 def cmd_propose(a):
     cfg = load_config()
     payload = load_payload(a.file)
-    check(payload, a.subject, f"{a.subject} 본문")
+    check_payload(payload, a.subject)
     title = payload.get("title") or payload.get("summary") or a.subject
     thread = new_thread_id(cfg["me"]["party"], a.subject, title)
     env = envelope(cfg, thread, 1, "propose", a.subject, payload=payload,
@@ -317,7 +387,7 @@ def cmd_revise(a):
     cfg = load_config()
     st = derive(a.thread)
     payload = load_payload(a.file)
-    check(payload, st["subject"], f"{st['subject']} 본문")
+    check_payload(payload, st["subject"])
     rev = st["rev"] + 1
     env = envelope(cfg, a.thread, rev, "revise", st["subject"], payload=payload,
                    text=a.note, state_hash=state_hash(a.thread, rev, st["subject"], payload))
@@ -455,7 +525,7 @@ def ingest_agent(cfg, body):
     if env["type"] in ("propose", "revise"):
         if "payload" not in env:
             raise AccordError("propose/revise 에는 payload 가 있어야 한다")
-        check(env["payload"], env["subject"], f"{env['subject']} 본문")
+        check_payload(env["payload"], env["subject"])
         expect = state_hash(env["thread"], env["rev"], env["subject"], env["payload"])
         if env.get("state_hash") and env["state_hash"] != expect:
             raise AccordError(
