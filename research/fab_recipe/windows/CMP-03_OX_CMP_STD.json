@@ -1,0 +1,14 @@
+{
+  "tool": "CMP-03",
+  "recipe": "OX_CMP_STD",
+  "note": "레시피 관리 시스템이 들고 있는 '승인된 공정 창' 의 예시. 제안서의 window 값은 이 파일과 같아야 하고, 제안서는 이 파일의 sha256 을 window_ref 로 싣는다.",
+  "qualified_on": "2026-08-14",
+  "params": {
+    "polish_time.min": {"unit": "s", "lo": 80, "hi": 130},
+    "polish_time.max": {"unit": "s", "lo": 80, "hi": 130},
+    "down_force": {"unit": "psi", "lo": 2.0, "hi": 4.0},
+    "platen_rpm": {"unit": "rpm", "lo": 60, "hi": 110},
+    "slurry_flow": {"unit": "ml/min", "lo": 150, "hi": 250},
+    "r2r.lambda": {"unit": "-", "lo": 0.1, "hi": 0.6}
+  }
+}

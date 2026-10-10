@@ -1,0 +1,29 @@
+{
+  "tool": "CMP-03",
+  "recipe": {"id": "OX_CMP_STD", "base_rev": "r41"},
+  "kind": "r2r_bounds",
+  "summary": "패드 마모로 R2R 연마 시간이 승인된 상한 115 s 에 묶였다 — 상한을 122 s 로 넓힌다",
+  "trigger": {
+    "source": "r2r",
+    "signal": "연마 시간이 상한 115 s 에 5웨이퍼 연속 고정",
+    "evidence": [
+      "W1167–W1171 연마 시간 115.0 s (상한)",
+      "제거량 EWMA 4962 Å — 목표 5000 Å 아래로 내려가는 중",
+      "추정 제거율 43.1 Å/s — 목표를 맞추려면 116.0 s 가 필요"
+    ]
+  },
+  "changes": [
+    {"param": "polish_time.max", "unit": "s", "from": 115, "to": 122,
+     "window": {"lo": 80, "hi": 130}, "max_step": 10}
+  ],
+  "window_ref": {
+    "kind": "path",
+    "value": "research/fab_recipe/windows/CMP-03_OX_CMP_STD.json",
+    "sha256": "96abd520dc16f387f9d7868ca3f70a1d583e2d1309569f37e3a882e562cce9a0"
+  },
+  "risk": "medium",
+  "rollback": {"to_rev": "r41", "when": "검증 미달, 또는 적용 뒤 SPC 이탈 1회"},
+  "verification": [
+    {"metric": "removal_A", "rule": "평균 5000±50 Å, Cpk ≥ 1.33", "n_wafers": 5}
+  ]
+}

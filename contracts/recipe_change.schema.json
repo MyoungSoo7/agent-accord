@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "accord/recipe_change",
+  "title": "레시피 변경 — 어느 장비의 어느 레시피 판본을, 무엇을 보고, 승인된 공정 창 안에서 얼마나 바꾸고, 어디로 되돌리고, 무엇으로 통과를 판정하는가",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "recipe", "kind", "summary", "trigger", "changes", "window_ref", "risk",
+               "rollback", "verification"],
+  "properties": {
+    "tool": { "type": "string", "minLength": 1 },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "base_rev"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "base_rev": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "kind": { "enum": ["baseline", "r2r_bounds", "controller"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "signal", "evidence"],
+      "properties": {
+        "source": { "enum": ["fdc", "spc", "r2r", "pm", "engineer"] },
+        "signal": { "type": "string", "minLength": 1 },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["param", "unit", "from", "to", "window"],
+        "properties": {
+          "param": { "type": "string", "minLength": 1 },
+          "unit": { "type": "string", "minLength": 1 },
+          "from": { "type": "number" },
+          "to": { "type": "number" },
+          "window": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["lo", "hi"],
+            "properties": {
+              "lo": { "type": "number" },
+              "hi": { "type": "number" }
+            }
+          },
+          "max_step": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "window_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value", "sha256"],
+      "properties": {
+        "kind": { "enum": ["url", "path", "commit"] },
+        "value": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "applies_to": { "type": "string", "minLength": 1 },
+    "risk": { "enum": ["low", "medium", "high"] },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["to_rev", "when"],
+      "properties": {
+        "to_rev": { "type": "string", "minLength": 1 },
+        "when": { "type": "string", "minLength": 1 }
+      }
+    },
+    "verification": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "rule", "n_wafers"],
+        "properties": {
+          "metric": { "type": "string", "minLength": 1 },
+          "rule": { "type": "string", "minLength": 1 },
+          "n_wafers": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}

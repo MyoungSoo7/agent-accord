@@ -35,6 +35,27 @@ CODE = {
     "rollback": "git revert <sha> 후 재배포",
     "verification": ["단위시험 통과", "중복 알림 0건 24시간"],
 }
+RECIPE = {
+    "tool": "CMP-03",
+    "recipe": {"id": "OX_CMP_STD", "base_rev": "r41"},
+    "kind": "r2r_bounds",
+    "summary": "패드 마모로 R2R 연마 시간이 상한 115 s 에 묶였다 — 상한을 122 s 로 넓힌다",
+    "trigger": {"source": "r2r", "signal": "연마 시간 상한 고정 5웨이퍼 연속",
+                "evidence": ["W1167–W1171 연마 시간 115 s", "제거량 EWMA 4962 Å (목표 5000)"]},
+    "changes": [{"param": "polish_time.max", "unit": "s", "from": 115, "to": 122,
+                 "window": {"lo": 80, "hi": 130}, "max_step": 10}],
+    "window_ref": {"kind": "path", "value": "windows/CMP-03_OX_CMP_STD.json", "sha256": "0" * 64},
+    "risk": "medium",
+    "rollback": {"to_rev": "r41", "when": "검증 미달 또는 SPC 이탈 1회"},
+    "verification": [{"metric": "removal_A", "rule": "평균 5000±50, Cpk ≥ 1.33", "n_wafers": 5}],
+}
+
+
+def recipe(**change):
+    """RECIPE 의 첫 변경 항목만 바꾼 사본."""
+    r = json.loads(json.dumps(RECIPE))
+    r["changes"][0].update(change)
+    return r
 
 
 class Base(unittest.TestCase):
@@ -102,6 +123,16 @@ class TestSchema(Base):
     def test_all_three_subjects_valid(self):
         for name, obj in (("doc_review", DOC), ("schedule", SCHED), ("code_change", CODE)):
             self.assertEqual(accord.validate(obj, accord.load_schema(name)), [], name)
+
+    def test_examples_pass_contract_and_rules(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        for fn, subject in (("doc_review.json", "doc_review"), ("schedule.json", "schedule"),
+                            ("code_change.json", "code_change"),
+                            ("code_change.v2.json", "code_change"),
+                            ("recipe_change.json", "recipe_change"),
+                            ("recipe_change.v2.json", "recipe_change")):
+            with open(os.path.join(here, "examples", fn), encoding="utf-8") as fh:
+                self.assertEqual(accord.payload_errors(json.load(fh), subject), [], fn)
 
 
 class TestApprovalBoundary(Base):
@@ -257,6 +288,97 @@ class TestIllusion(Base):
         st2 = accord.derive(th)
         self.assertEqual(st2["state"], "agreed")
         self.assertFalse(any("합의 착시" in w for w in st2["warnings"]), st2["warnings"])
+
+
+class TestRecipeChange(Base):
+    """팹 레시피 변경: 스키마로 못 거는 항목 사이 조건을 본문 규칙으로 막는다."""
+
+    def errors(self, payload):
+        return accord.payload_errors(payload, "recipe_change")
+
+    def assert_refused(self, payload, needle):
+        errs = self.errors(payload)
+        self.assertTrue(any(needle in e for e in errs), errs)
+        # 제안 명령도, 상대에게서 받은 봉투도 같은 이유로 거부된다
+        self.assertEqual(accord.main(["propose", "--subject", "recipe_change",
+                                      "--file", self.payload_file(payload)]), 2)
+        th, _ = self.peer_propose("recipe_change", payload)
+        with self.assertRaises(accord.AccordError):
+            accord.derive(th)   # 원장에 남지 않았다
+
+    def test_valid_recipe_change(self):
+        self.assertEqual(self.errors(RECIPE), [])
+        self.assertEqual(accord.main(["propose", "--subject", "recipe_change",
+                                      "--file", self.payload_file(RECIPE)]), 0)
+
+    def test_value_outside_window_refused(self):
+        self.assert_refused(recipe(to=135, max_step=25), "공정 창")
+
+    def test_window_must_be_an_interval(self):
+        self.assert_refused(recipe(window={"lo": 130, "hi": 80}), "lo(130)")
+
+    def test_non_finite_numbers_refused(self):
+        self.assert_refused(recipe(to=float("nan")), "유한한 수")
+        self.assert_refused(recipe(window={"lo": float("-inf"), "hi": float("inf")}), "유한한 수")
+        self.assert_refused(recipe(max_step=float("nan")), "유한한 수")
+
+    def test_noop_change_refused(self):
+        self.assert_refused(recipe(to=115), "from 과 to 가 같다")
+
+    def test_step_limit(self):
+        self.assert_refused(recipe(to=128), "max_step")
+        ok = recipe(to=128)
+        del ok["changes"][0]["max_step"]
+        self.assertEqual(self.errors(ok), [])
+
+    def test_duplicate_param_refused(self):
+        dup = json.loads(json.dumps(RECIPE))
+        dup["changes"].append(dict(dup["changes"][0], to=120))
+        self.assert_refused(dup, "두 번")
+
+    def test_rollback_must_return_to_base_rev(self):
+        bad = json.loads(json.dumps(RECIPE))
+        bad["rollback"]["to_rev"] = "r40"
+        self.assert_refused(bad, "base_rev")
+
+    def test_schema_requires_evidence_window_hash_and_qual_wafers(self):
+        for path, value, needle in ((("trigger", "evidence"), [], "evidence"),
+                                    (("window_ref", "sha256"), None, "sha256"),
+                                    (("verification",), [dict(RECIPE["verification"][0],
+                                                              n_wafers=0)], "1 이상")):
+            bad = json.loads(json.dumps(RECIPE))
+            parent = bad
+            for k in path[:-1]:
+                parent = parent[k]
+            if value is None:
+                del parent[path[-1]]
+            else:
+                parent[path[-1]] = value
+            errs = self.errors(bad)
+            self.assertTrue(any(needle in e for e in errs), (path, errs))
+
+    def test_full_cycle_still_needs_both_humans(self):
+        th, _ = self.peer_propose("recipe_change", RECIPE)
+        h = accord.state_hash(th, 1, "recipe_change", RECIPE)
+        self.assertEqual(accord.main(["execute", "--thread", th, "--note", "적용"]), 2)
+        self.assertEqual(self.human(f"승인 {th} {h}", "111"), 0)
+        self.assertEqual(accord.main(["execute", "--thread", th, "--note", "적용"]), 2)
+        self.assertEqual(self.peer_human_relay(th, "recipe_change", h), 0)
+        self.assertEqual(accord.derive(th)["state"], "agreed")
+        self.assertEqual(accord.main(["execute", "--thread", th, "--note", "qual 5매 통과",
+                                      "--evidence", "removal_A mean 5003, Cpk 1.41"]), 0)
+        self.assertEqual(accord.derive(th)["state"], "executed")
+
+    def test_tampered_ledger_payload_warns(self):
+        th, _ = self.peer_propose("recipe_change", RECIPE)
+        bad = recipe(to=135, max_step=25)
+        accord.append({"accord": "1", "thread": th, "rev": 2, "ts": "2026-09-22T00:00:05Z",
+                       "sender": {"party": "B", "kind": "agent"}, "type": "revise",
+                       "subject": "recipe_change", "payload": bad,
+                       "state_hash": accord.state_hash(th, 2, "recipe_change", bad)})
+        st = accord.derive(th)
+        self.assertTrue(any("원장을 직접 손댄" in w and "공정 창" in w for w in st["warnings"]),
+                        st["warnings"])
 
 
 if __name__ == "__main__":

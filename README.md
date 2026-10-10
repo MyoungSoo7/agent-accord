@@ -1,6 +1,6 @@
 # ACCORD — 사람↔사람 협업을 각자의 봇 에이전트가 중개하는 워크플로우
 
-두 사람이 **각자의 봇 에이전트**를 통해 합의한다. 대상은 세 가지다: **문서 리뷰 · 일정 조율 · 코드 변경**.
+두 사람이 **각자의 봇 에이전트**를 통해 합의한다. 대상은 네 가지다: **문서 리뷰 · 일정 조율 · 코드 변경 · 팹 레시피 변경**.
 
 핵심 한 줄: **에이전트는 좁히기만 하고, 승인은 사람만 발화한다.**
 
@@ -98,7 +98,7 @@ partner  승인                                          → agreed
 execute                                                 → executed
 ```
 
-## 합의 대상 세 가지
+## 합의 대상 네 가지
 
 계약(JSON Schema)은 `contracts/` 에 있다. **스키마를 통과하지 못하면 제안조차 되지 않는다.**
 
@@ -107,8 +107,11 @@ execute                                                 → executed
 | `doc_review` | title, doc_ref{kind,value}, scope[], decision_required | "무슨 결정을 받으려는가" 를 빈칸으로 둘 수 없다 |
 | `schedule` | title, duration_min, timezone, candidates[] | 시간대 없는 후보 시각이 금지된다 |
 | `code_change` | repo, base_sha, change_ref, summary, risk, **rollback**, **verification[]** | 되돌리는 법과 기계로 확인 가능한 통과 조건 없이는 제안 자체가 불가능 |
+| `recipe_change` | tool, recipe{id,base_rev}, kind, summary, trigger{evidence[]}, changes[]{from,to,**window**}, **window_ref{sha256}**, risk, **rollback{to_rev}**, **verification[]{n_wafers}** | 승인된 공정 창 밖 값, 되돌릴 곳이 지금 판본이 아닌 변경, 근거·판정 매수 없는 변경은 제안 자체가 불가능 |
 
 `code_change` 의 `rollback` · `verification` 필수는 의도적으로 깐깐하게 둔 것이다. 합의가 필요한 코드 변경은 대개 그 둘이 비어 있어서 사고가 난다.
+
+`recipe_change` 에는 스키마로 못 거는 *항목 사이* 조건이 있어 본문 규칙(`recipe_change_rules`)을 따로 둔다: `to` 가 `window` 안인지, `from ≠ to`, `|to − from| ≤ max_step`, 같은 `param` 중복 금지, NaN·Infinity 금지, `rollback.to_rev == recipe.base_rev`. 어기면 계약 위반과 똑같이 제안·수정·수신이 모두 거부된다. 쓰임새와 시뮬레이션은 [`research/fab_recipe/`](research/fab_recipe/README.md) 에 있다.
 
 ## 원장
 
@@ -121,7 +124,7 @@ python3 accord.py log --thread T-976094ed
 ## 시험
 
 ```bash
-python3 test_accord.py        # 18개
+python3 test_accord.py        # 30개
 python3 -W error::ResourceWarning test_accord.py
 ```
 
@@ -139,9 +142,10 @@ python3 -W error::ResourceWarning test_accord.py
 
 ```
 accord.py                  구현 (표준 라이브러리만)
-test_accord.py             경계 시험 18개
+test_accord.py             경계 시험 30개
 contracts/envelope.schema.json   봉투
-contracts/{doc_review,schedule,code_change}.schema.json   합의 대상 3종
+contracts/{doc_review,schedule,code_change,recipe_change}.schema.json   합의 대상 4종
 examples/                  실제로 통과하는 예시 페이로드
 SPEC.md                    프로토콜 규격
+research/                  반도체 공정 × IoT 연구 4편 (research/README.md)
 ```

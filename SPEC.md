@@ -35,8 +35,25 @@
 - `thread` — `^T-[0-9a-f]{8}$`
 - `sender.kind` — `agent` | `human`. **`human` 봉투는 무조건 거부된다** (§4).
 - `type` — `propose` · `question` · `revise` · `approve` · `reject` · `approve_relay` · `reject_relay` · `execute` · `withdraw`
-- `subject` — `doc_review` | `schedule` | `code_change`
+- `subject` — `doc_review` | `schedule` | `code_change` | `recipe_change`
 - `payload` — 해당 subject 의 계약(`contracts/<subject>.schema.json`)을 통과해야 한다.
+  계약에 더해 subject 별 **본문 규칙**이 있으면 그것도 통과해야 한다 (§2.1).
+
+### 2.1 본문 규칙
+
+스키마로는 걸 수 없는 항목 사이의 조건이다. 스키마를 통과한 본문에만 돌고, 어기면 계약 위반과 똑같이 거부한다.
+
+`recipe_change` (각 `changes[i]` 에 대해, 그리고 본문 전체에 대해):
+
+1. `from`·`to`·`max_step`·`window.lo`·`window.hi` 는 유한한 수다. *이유: json 은 NaN·Infinity 를 읽어 들이고, 그 값은 창 비교를 무력화한다.*
+2. `window.lo < window.hi`
+3. `window.lo ≤ to ≤ window.hi` — 승인된 공정 창 밖 값은 제안할 수 없다. 창을 넓히는 일은 재인증이지 레시피 변경이 아니다.
+4. `from ≠ to`
+5. `max_step` 이 있으면 `|to − from| ≤ max_step`
+6. 같은 `param` 은 한 번만
+7. `rollback.to_rev == recipe.base_rev` — 되돌릴 곳은 지금 승인된 판본이다.
+
+창 값 자체가 맞는지는 이 규칙이 판단하지 못한다. 그래서 `window_ref.sha256` 이 필수이고, 상대 에이전트가 자기 쪽 창 파일과 대조한다.
 
 ## 3. 지문 (state_hash)
 
@@ -62,7 +79,7 @@ state_hash = sha256(canon).hexdigest()[:8]
 2. `sender.kind == "human"` → 거부. *이유: 봉투는 에이전트가 만들 수 있다. 그걸 승인으로 인정하면 그 순간 대리 승인이다.*
 3. `type ∈ {approve, reject}` 인데 발신이 에이전트 → 거부
 4. 미등록 party → 거부
-5. payload 계약 실패 → 거부
+5. payload 계약 또는 본문 규칙(§2.1) 실패 → 거부
 6. 지문 불일치 → 거부
 
 사람 한 줄에 대해서는:
@@ -132,6 +149,8 @@ state_hash = sha256(canon).hexdigest()[:8]
 막지는 않는다. LLM 둘이 마찰 없이 도달한 합의를 자동으로 무효화할 근거는 없고, 사람이 볼 수 있게 표시하는 것이 정직한 처리다.
 
 추가 경고: `code_change` 가 `agreed` 인데 `rollback` 또는 `verification` 이 비어 있을 때 (계약이 이미 둘 다 필수로 막고 있으므로, 원장을 직접 손댄 경우에만 뜬다).
+
+추가 경고: 현재 판본이 계약·본문 규칙을 어길 때. 수신 때 막히므로 이것도 원장을 직접 손댄 경우에만 뜬다.
 
 ## 7. 원장
 
