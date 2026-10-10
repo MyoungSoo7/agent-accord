@@ -1,0 +1,41 @@
+# Pinned environment for research/equipment_protocols (Python 3.13). Install:
+#   uv venv .venv --python 3.13 && uv pip install --python .venv/bin/python -r requirements.txt
+# Also needs the Mosquitto broker binary: apt-get install -y mosquitto   (2.0.18 used)
+# Direct deps: asyncua, paho-mqtt (1.6.1: pysparkplug 0.6.1 requires <2), pysparkplug (ships the
+# Tahu sparkplug_b_pb2), protobuf, secsgem (cross-check in tests only), numpy, matplotlib, pytest.
+aiosqlite==0.22.1
+anyio==4.15.1
+asyncua==2.1.0
+attrs==26.1.0
+cffi==2.1.1
+contourpy==1.4.0
+cryptography==50.0.2
+cycler==0.12.1
+fonttools==4.66.1
+idna==3.20
+iniconfig==2.3.1
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.5.3
+packaging==26.3
+paho-mqtt==1.6.1
+pillow==12.3.0
+pluggy==1.6.0
+protobuf==7.36.2
+pycparser==3.11
+pygments==2.21.0
+pyparsing==3.3.3
+pyserial==3.5
+pysparkplug==0.6.1
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+pytz==2026.5
+pyyaml==6.0.3
+referencing==0.37.0
+rpds-py==2026.9.1
+secsgem==0.3.0
+six==1.17.0
+sortedcontainers==2.4.0
+typing-extensions==4.16.0

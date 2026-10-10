@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | 1 | ACCORD × 팹 레시피 변경 승인 — 에이전트는 제안만, 승인은 엔지니어만 | [`fab_recipe/`](fab_recipe/README.md) | 완료 |
 | 2 | R2R(Run-to-Run) 제어 + 가상 계측 — 지연·이득 불일치 안정성, 계측 표본화와 VM | [`r2r_vm/`](r2r_vm/README.md) | 완료 |
-| 3 | 장비 연동 프로토콜 — SECS/GEM · OPC UA · MQTT(Sparkplug B) | `equipment_protocols/` | 진행 중 |
+| 3 | 장비 연동 프로토콜 — SECS/GEM · OPC UA · MQTT(Sparkplug B), SECS/GEM→MQTT 게이트웨이 실측 | [`equipment_protocols/`](equipment_protocols/README.md) | 완료 |
 | 4 | FDC 이상 탐지 — UCI SECOM 실데이터 | `fdc_secom/` | 진행 중 |
 
 ## 환경과 데이터
